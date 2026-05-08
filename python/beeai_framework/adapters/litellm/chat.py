@@ -38,6 +38,7 @@ from beeai_framework.backend.chat import (
 from beeai_framework.backend.errors import ChatModelError
 from beeai_framework.backend.message import (
     AssistantMessage,
+    AssistantMessageContent,
     MessageTextContent,
     MessageToolCallContent,
     ToolMessage,
@@ -307,28 +308,28 @@ class LiteLLMChatModel(ChatModel, ABC):
                     total_cost_usd=prompt_tokens_cost_usd + completion_tokens_cost_usd,
                 )
 
-        return ChatModelOutput(
-            output=(
-                [
-                    AssistantMessage(
-                        [
-                            MessageToolCallContent(
-                                id=call.id or "",
-                                tool_name=call.function.name or "",
-                                args=call.function.arguments,
-                            )
-                            for call in update.tool_calls
-                        ],
-                        id=chunk.id,
+        content_parts: list[AssistantMessageContent] = []
+
+        if update:
+            reasoning = getattr(update, "reasoning_content", None)
+            if reasoning:
+                content_parts.append(MessageTextContent(text=reasoning))
+
+            if update.content:
+                content_parts.append(MessageTextContent(text=update.content))
+
+            if update.tool_calls:
+                for call in update.tool_calls:
+                    content_parts.append(
+                        MessageToolCallContent(
+                            id=call.id or "",
+                            tool_name=call.function.name or "",
+                            args=call.function.arguments,
+                        )
                     )
-                    if update.tool_calls
-                    # pyrefly: ignore [bad-argument-type]
-                    else AssistantMessage(update.content or update.reasoning_content or "", id=chunk.id)
-                ]
-                if (update and update.model_dump(exclude_none=True))
-                else []
-            ),
-            # Will be set later
+
+        return ChatModelOutput(
+            output=[AssistantMessage(content_parts, id=chunk.id)] if content_parts else [],
             output_structured=None,
             finish_reason=finish_reason,
             usage=parse_chat_model_usage(usage) if usage else ChatModelUsage(),
